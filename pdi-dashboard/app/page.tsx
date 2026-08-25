@@ -147,10 +147,11 @@ export default function Dashboard() {
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white tracking-tight">
-              🚗 PDI Production Dashboard
+              PDI Production Dashboard
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">Plan vs Actual — PDI sign-off tracker</p>
           </div>
+          <p className="text-sm text-gray-400 font-medium hidden md:block">PDI signed off by Zeno team</p>
           <div className="flex items-center gap-3">
             {months.length > 0 && (
               <select
