@@ -102,7 +102,7 @@ function parseDateToSortable(ddmmyyyy: string): string {
  * Get the list of unique months from records, most recent first.
  */
 export function getMonths(records: VehicleRecord[]): string[] {
-  const months = [...new Set(records.map(r => r.month))].filter(Boolean)
+  const months = Array.from(new Set(records.map(r => r.month))).filter(Boolean)
   // Sort by parsed date (most recent first)
   return months.sort((a, b) => {
     return parseMonthLabel(b) - parseMonthLabel(a)
