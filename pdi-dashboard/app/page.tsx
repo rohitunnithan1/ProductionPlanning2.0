@@ -1,18 +1,80 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import StatCard from '@/components/StatCard'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import DailyChart from '@/components/DailyChart'
-import VehicleTable from '@/components/VehicleTable'
-import type { ProductionStats } from '@/lib/types'
+import type { ProductionStats, DailyCount } from '@/lib/types'
+
+type ViewMode = 'day' | 'week'
+
+/** "DD-MM-YYYY" → Date object */
+function parseDDMMYYYY(s: string): Date | null {
+  const m = s.match(/^(\d{2})-(\d{2})-(\d{4})$/)
+  if (!m) return null
+  return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]))
+}
+
+/** "DD-MM-YYYY" → "YYYY-MM-DD" (for <input type="date"> value) */
+function toInputDate(ddmmyyyy: string): string {
+  const m = ddmmyyyy.match(/^(\d{2})-(\d{2})-(\d{4})$/)
+  if (!m) return ''
+  return `${m[3]}-${m[2]}-${m[1]}`
+}
+
+/** ISO week number for a Date */
+function isoWeek(d: Date): number {
+  const tmp = new Date(d)
+  tmp.setHours(0, 0, 0, 0)
+  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7))
+  const week1 = new Date(tmp.getFullYear(), 0, 4)
+  return 1 + Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)
+}
+
+/** Aggregate daily counts into weekly buckets */
+function aggregateByWeek(counts: DailyCount[]): DailyCount[] {
+  const map: Record<string, DailyCount & { _dates: string[] }> = {}
+
+  for (const d of counts) {
+    const dt = parseDDMMYYYY(d.date)
+    if (!dt) continue
+    const wk = isoWeek(dt)
+    const yr = dt.getFullYear()
+    const key = `${yr}-W${String(wk).padStart(2, '0')}`
+
+    if (!map[key]) {
+      map[key] = { date: key, count: 0, signedOff: 0, plan: 0, _dates: [] }
+    }
+    map[key].count    += d.count
+    map[key].signedOff += d.signedOff
+    map[key].plan     += d.plan
+    map[key]._dates.push(d.date)
+  }
+
+  // Label as "Aug W1", "Aug W2" etc using the first date in each week
+  return Object.values(map)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map(w => {
+      const firstDate = parseDDMMYYYY(w._dates[0])
+      const lastDate  = parseDDMMYYYY(w._dates[w._dates.length - 1])
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+      const label = firstDate && lastDate
+        ? `${months[firstDate.getMonth()]} ${firstDate.getDate()}–${lastDate.getDate()}`
+        : w.date
+      return { date: label, count: w.count, signedOff: w.signedOff, plan: w.plan }
+    })
+}
 
 export default function Dashboard() {
-  const [months, setMonths] = useState<string[]>([])
+  const [months, setMonths]               = useState<string[]>([])
   const [selectedMonth, setSelectedMonth] = useState<string>('')
-  const [stats, setStats] = useState<ProductionStats | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [lastUpdated, setLastUpdated] = useState<string>('')
+  const [stats, setStats]                 = useState<ProductionStats | null>(null)
+  const [loading, setLoading]             = useState(true)
+  const [error, setError]                 = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated]     = useState<string>('')
+
+  // Chart controls
+  const [viewMode, setViewMode] = useState<ViewMode>('day')
+  const [dateFrom, setDateFrom] = useState<string>('')   // "YYYY-MM-DD" for input
+  const [dateTo, setDateTo]     = useState<string>('')   // "YYYY-MM-DD" for input
 
   const fetchData = useCallback(async (month?: string) => {
     setLoading(true)
@@ -29,6 +91,9 @@ export default function Dashboard() {
       setMonths(data.months)
       setSelectedMonth(data.selectedMonth)
       setLastUpdated(new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }))
+      // Reset date range when month changes
+      setDateFrom('')
+      setDateTo('')
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -43,21 +108,50 @@ export default function Dashboard() {
     fetchData(m)
   }
 
-  const pdiRate = stats ? Math.round((stats.signedOff / stats.total) * 100) : 0
+  // Filter + aggregate chart data based on controls
+  const chartData = useMemo(() => {
+    if (!stats) return []
+
+    let data = stats.dailyCounts
+
+    // Apply date range filter
+    if (dateFrom || dateTo) {
+      const from = dateFrom ? new Date(dateFrom) : null
+      const to   = dateTo   ? new Date(dateTo)   : null
+      data = data.filter(d => {
+        const dt = parseDDMMYYYY(d.date)
+        if (!dt) return false
+        if (from && dt < from) return false
+        if (to   && dt > to  ) return false
+        return true
+      })
+    }
+
+    if (viewMode === 'week') {
+      return aggregateByWeek(data)
+    }
+    return data
+  }, [stats, viewMode, dateFrom, dateTo])
+
+  // Compute date bounds from current data for the range inputs
+  const dateBounds = useMemo(() => {
+    if (!stats?.dailyCounts.length) return { min: '', max: '' }
+    const dates = stats.dailyCounts.map(d => toInputDate(d.date)).filter(Boolean).sort()
+    return { min: dates[0], max: dates[dates.length - 1] }
+  }, [stats])
 
   return (
     <div className="min-h-screen bg-gray-950">
       {/* Header */}
       <header className="border-b border-gray-800 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white tracking-tight">
               🚗 PDI Production Dashboard
             </h1>
-            <p className="text-xs text-gray-500 mt-0.5">Vehicle PDI sign-off tracker</p>
+            <p className="text-xs text-gray-500 mt-0.5">Plan vs Actual — PDI sign-off tracker</p>
           </div>
-          <div className="flex items-center gap-4">
-            {/* Month selector */}
+          <div className="flex items-center gap-3">
             {months.length > 0 && (
               <select
                 value={selectedMonth}
@@ -80,105 +174,95 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
-        {/* Error state */}
+      <main className="max-w-6xl mx-auto px-6 py-8">
+        {/* Error */}
         {error && (
-          <div className="bg-red-900/30 border border-red-700 rounded-xl p-5 text-red-300">
+          <div className="bg-red-900/30 border border-red-700 rounded-xl p-5 text-red-300 mb-6">
             <p className="font-semibold mb-1">⚠ Data Error</p>
             <p className="text-sm">{error}</p>
-            {error.includes('SHEETS_CSV_URL') && (
-              <p className="text-sm mt-3 text-red-400">
-                Set the <code className="bg-red-900/50 px-1 rounded">SHEETS_CSV_URL</code> environment
-                variable in your Vercel project settings. See README for instructions.
-              </p>
-            )}
           </div>
         )}
 
         {/* Loading skeleton */}
         {loading && !stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="bg-gray-900 rounded-xl p-5 h-24 animate-pulse border-l-4 border-gray-700" />
-            ))}
-          </div>
+          <div className="bg-gray-900 rounded-xl border border-gray-800 h-80 animate-pulse" />
         )}
 
         {stats && (
-          <>
-            {/* Month headline */}
-            <div className="flex items-baseline gap-3">
-              <h2 className="text-2xl font-bold text-white">{selectedMonth}</h2>
-              {lastUpdated && (
-                <span className="text-xs text-gray-600">Updated {lastUpdated}</span>
-              )}
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+            {/* Chart header row */}
+            <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-base font-semibold text-white">Plan vs Actual — Daily PDI Sign-offs</h2>
+                {lastUpdated && (
+                  <p className="text-xs text-gray-600 mt-0.5">Updated {lastUpdated}</p>
+                )}
+              </div>
+
+              {/* Controls row */}
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Day / Week toggle */}
+                <div className="flex rounded-lg overflow-hidden border border-gray-700">
+                  {(['day', 'week'] as ViewMode[]).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setViewMode(mode)}
+                      className={`px-4 py-1.5 text-sm font-medium transition-colors capitalize
+                        ${viewMode === mode
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                        }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Date range */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    min={dateBounds.min}
+                    max={dateBounds.max}
+                    onChange={e => setDateFrom(e.target.value)}
+                    className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    title="From date"
+                  />
+                  <span className="text-gray-600 text-xs">to</span>
+                  <input
+                    type="date"
+                    value={dateTo}
+                    min={dateBounds.min}
+                    max={dateBounds.max}
+                    onChange={e => setDateTo(e.target.value)}
+                    className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    title="To date"
+                  />
+                  {(dateFrom || dateTo) && (
+                    <button
+                      onClick={() => { setDateFrom(''); setDateTo('') }}
+                      className="text-gray-500 hover:text-gray-300 text-xs px-2 py-1.5 rounded-lg hover:bg-gray-800 transition-colors"
+                      title="Clear date filter"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* Stat cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard
-                label="Total Produced"
-                value={stats.total}
-                sub="vehicles this month"
-                color="blue"
-                large
-              />
-              <StatCard
-                label="PDI Signed Off"
-                value={stats.signedOff}
-                sub={`${pdiRate}% completion rate`}
-                color="green"
-              />
-              <StatCard
-                label="Pending PDI"
-                value={stats.pending}
-                sub="awaiting sign-off"
-                color="amber"
-              />
-              <StatCard
-                label="With Issues"
-                value={stats.withIssues}
-                sub={`${stats.allOK} vehicles all-OK`}
-                color="red"
-              />
-            </div>
-
-            {/* PDI progress bar */}
-            <div className="bg-gray-900 rounded-xl p-5 border border-gray-800">
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-gray-400 font-medium">PDI Completion</span>
-                <span className="text-white font-bold">{pdiRate}%</span>
+            {/* Chart */}
+            {chartData.length > 0 ? (
+              <DailyChart data={chartData} weekMode={viewMode === 'week'} />
+            ) : (
+              <div className="flex items-center justify-center h-60 text-gray-600 text-sm">
+                No data for the selected range
               </div>
-              <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-blue-600 to-emerald-500 rounded-full transition-all duration-700"
-                  style={{ width: `${pdiRate}%` }}
-                />
-              </div>
-              <div className="flex justify-between text-xs text-gray-600 mt-1.5">
-                <span>{stats.signedOff} signed off</span>
-                <span>{stats.pending} remaining</span>
-              </div>
-            </div>
-
-            {/* Daily chart */}
-            {stats.dailyCounts.length > 0 && (
-              <DailyChart data={stats.dailyCounts} />
             )}
-
-            {/* Recent vehicles */}
-            {stats.latestVehicles.length > 0 && (
-              <VehicleTable vehicles={stats.latestVehicles} />
-            )}
-          </>
+          </div>
         )}
       </main>
-
-      <footer className="border-t border-gray-800 px-6 py-4 mt-8">
-        <p className="text-center text-xs text-gray-700">
-          Production data sourced from Google Sheets PDI_Database · Refreshes every 5 minutes
-        </p>
-      </footer>
     </div>
   )
 }
