@@ -9,16 +9,15 @@ import type { DailyCount } from '@/lib/types'
 interface DailyChartProps {
   data: DailyCount[]
   weekMode?: boolean
+  onBarClick?: (date: string) => void   // DD-MM-YYYY, only fired in day mode
 }
 
-// Format "08-08-2026" → "Aug 8"  (no-op if already a label like "Aug 8–14")
+// Format "08-08-2026" → "Aug 8"  (no-op if already a week label)
 function formatDate(s: string): string {
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const m = s.match(/^(\d{2})-(\d{2})-(\d{4})$/)
-  if (!m) return s   // already a week label or custom string
-  const day = parseInt(m[1])
-  const mon = parseInt(m[2]) - 1
-  return `${months[mon]} ${day}`
+  if (!m) return s
+  return `${months[parseInt(m[2]) - 1]} ${parseInt(m[1])}`
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -31,26 +30,36 @@ const CustomTooltip = ({ active, payload, label }: any) => {
           {p.name}: <span className="font-bold text-white">{p.value}</span>
         </p>
       ))}
+      {!payload.every((p: any) => p.value === 0) && (
+        <p className="text-gray-500 text-xs mt-1">Click to see vehicles</p>
+      )}
     </div>
   )
 }
 
-export default function DailyChart({ data, weekMode = false }: DailyChartProps) {
+export default function DailyChart({ data, weekMode = false, onBarClick }: DailyChartProps) {
   const chartData = data.map(d => ({
     date:     formatDate(d.date),
+    rawDate:  d.date,          // original DD-MM-YYYY — used for click lookup
     'Plan':   d.plan,
     'Actual': d.signedOff,
   }))
 
-  const barSize = weekMode ? 28 : undefined
+  const handleClick = (payload: any) => {
+    if (!onBarClick || weekMode) return
+    const rawDate = payload?.activePayload?.[0]?.payload?.rawDate
+    if (rawDate) onBarClick(rawDate)
+  }
 
   return (
     <ResponsiveContainer width="100%" height={300}>
       <BarChart
         data={chartData}
         margin={{ top: 4, right: 8, left: -8, bottom: 0 }}
-        barSize={barSize}
+        barSize={weekMode ? 28 : undefined}
         barCategoryGap={weekMode ? '30%' : '20%'}
+        onClick={handleClick}
+        style={{ cursor: onBarClick && !weekMode ? 'pointer' : 'default' }}
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
         <XAxis

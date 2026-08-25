@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     const selected = month || months[0] || currentMonthLabel()
     const stats    = computeStats(records, selected, planData)
 
-    return NextResponse.json({ stats, months, selectedMonth: selected })
+    return NextResponse.json({ stats, months, selectedMonth: selected, records })
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || 'Unknown error' },
