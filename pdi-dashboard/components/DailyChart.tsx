@@ -2,7 +2,7 @@
 
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
+  Legend, ResponsiveContainer,
 } from 'recharts'
 import type { DailyCount } from '@/lib/types'
 
@@ -36,14 +36,15 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export default function DailyChart({ data }: DailyChartProps) {
   const chartData = data.map(d => ({
-    date:           formatDate(d.date),
-    'PDI Sign-offs': d.signedOff,
+    date:        formatDate(d.date),
+    'Plan':      d.plan,
+    'Actual':    d.signedOff,
   }))
 
   return (
     <div className="bg-gray-900 rounded-xl p-5 border border-gray-800">
       <h2 className="text-sm font-semibold uppercase tracking-widest text-gray-400 mb-4">
-        Daily PDI Sign-offs
+        Plan vs Actual — Daily PDI Sign-offs
       </h2>
       <ResponsiveContainer width="100%" height={260}>
         <BarChart data={chartData} margin={{ top: 4, right: 8, left: -8, bottom: 0 }}>
@@ -51,7 +52,12 @@ export default function DailyChart({ data }: DailyChartProps) {
           <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
           <Tooltip content={<CustomTooltip />} />
-          <Bar dataKey="PDI Sign-offs" fill="#10b981" radius={[4,4,0,0]} />
+          <Legend
+            wrapperStyle={{ fontSize: '12px', paddingTop: '12px' }}
+            formatter={(v) => <span style={{ color: '#9ca3af' }}>{v}</span>}
+          />
+          <Bar dataKey="Plan"   fill="#3b82f6" radius={[4,4,0,0]} />
+          <Bar dataKey="Actual" fill="#10b981" radius={[4,4,0,0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
