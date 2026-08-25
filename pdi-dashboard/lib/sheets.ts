@@ -125,6 +125,32 @@ export function computeStats(
     }
   }
 
+  // Fill every calendar day between min and max so gaps show as zero
+  const allKeys = Object.keys(dailyMap)
+  if (allKeys.length > 1) {
+    const sorted = allKeys.slice().sort((a, b) =>
+      parseDateToSortable(a).localeCompare(parseDateToSortable(b))
+    )
+    const first = sorted[0]
+    const last  = sorted[sorted.length - 1]
+    const fm = first.match(/^(\d{2})-(\d{2})-(\d{4})$/)
+    const lm = last.match(/^(\d{2})-(\d{2})-(\d{4})$/)
+    if (fm && lm) {
+      const cursor = new Date(parseInt(fm[3]), parseInt(fm[2]) - 1, parseInt(fm[1]))
+      const end    = new Date(parseInt(lm[3]), parseInt(lm[2]) - 1, parseInt(lm[1]))
+      while (cursor <= end) {
+        const dd = String(cursor.getDate()).padStart(2, '0')
+        const mm = String(cursor.getMonth() + 1).padStart(2, '0')
+        const yyyy = String(cursor.getFullYear())
+        const key = `${dd}-${mm}-${yyyy}`
+        if (!dailyMap[key]) {
+          dailyMap[key] = { date: key, count: 0, signedOff: 0, plan: 0 }
+        }
+        cursor.setDate(cursor.getDate() + 1)
+      }
+    }
+  }
+
   // Sort dates (DD-MM-YYYY → sort as YYYY-MM-DD)
   const dailyCounts = Object.values(dailyMap).sort((a, b) =>
     parseDateToSortable(a.date).localeCompare(parseDateToSortable(b.date))
