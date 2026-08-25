@@ -4,6 +4,13 @@ import { fetchPDIRecords, fetchPlanData, computeStats, getMonths } from '@/lib/s
 export const dynamic = 'force-dynamic'
 export const revalidate = 300 // 5 minutes
 
+/** Returns "Aug 2026" style label for the current month */
+function currentMonthLabel(): string {
+  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const now   = new Date()
+  return `${names[now.getMonth()]} ${now.getFullYear()}`
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
@@ -15,9 +22,10 @@ export async function GET(req: NextRequest) {
       fetchPlanData(),
     ])
 
-    const months        = getMonths(records)
-    const selected      = month || months[0] || ''
-    const stats         = computeStats(records, selected, planData)
+    const months   = getMonths(records)
+    // Fall back to current calendar month so the chart always shows something useful
+    const selected = month || months[0] || currentMonthLabel()
+    const stats    = computeStats(records, selected, planData)
 
     return NextResponse.json({ stats, months, selectedMonth: selected })
   } catch (err: any) {

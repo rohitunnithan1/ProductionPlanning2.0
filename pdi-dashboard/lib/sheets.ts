@@ -111,9 +111,14 @@ export function computeStats(
     dailyMap[d].signedOff++
   }
 
-  // Merge plan for dates that fall inside the selected month
+  // Merge plan for dates that fall inside the selected month (Aug 2026 onwards only)
   const monthSuffix = getMonthSuffix(month)  // e.g. "Aug 2026" → "-08-2026"
   for (const [date, qty] of Object.entries(planData)) {
+    // Skip anything before Aug 2026
+    const dm = date.match(/^(\d{2})-(\d{2})-(\d{4})$/)
+    if (!dm) continue
+    const planDate = new Date(parseInt(dm[3]), parseInt(dm[2]) - 1, parseInt(dm[1]))
+    if (planDate < new Date(2026, 7, 1)) continue   // 7 = August (0-indexed)
     if (monthSuffix && !date.endsWith(monthSuffix)) continue
     if (dailyMap[date]) {
       dailyMap[date].plan = qty
