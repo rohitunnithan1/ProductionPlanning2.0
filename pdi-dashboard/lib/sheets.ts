@@ -62,13 +62,14 @@ export async function fetchPDIRecords(): Promise<VehicleRecord[]> {
 export function computeStats(records: VehicleRecord[], month: string): ProductionStats {
   const filtered = records.filter(r => r.month === month)
 
-  // Daily production counts (by production date)
+  // Daily PDI sign-off counts (only vehicles that have been signed off)
   const dailyMap: Record<string, DailyCount> = {}
   for (const r of filtered) {
-    const d = r.production_date || 'Unknown'
+    if (!r.pdi_signed_off || !r.pdi_signoff_date) continue
+    const d = r.pdi_signoff_date
     if (!dailyMap[d]) dailyMap[d] = { date: d, count: 0, signedOff: 0 }
     dailyMap[d].count++
-    if (r.pdi_signed_off) dailyMap[d].signedOff++
+    dailyMap[d].signedOff++
   }
 
   // Sort dates (DD-MM-YYYY → sort as YYYY-MM-DD)
