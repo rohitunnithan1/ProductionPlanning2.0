@@ -1,23 +1,19 @@
 import Papa from 'papaparse'
 import type { VehicleRecord, ProductionStats, DailyCount } from './types'
 
-const SHEETS_CSV_URL = process.env.SHEETS_CSV_URL || ''
+const SHEETS_CSV_URL      = process.env.SHEETS_CSV_URL      || ''
+const SHEETS_PLAN_CSV_URL = process.env.SHEETS_PLAN_CSV_URL || ''
 
 /**
- * Fetches PDI records from the published Google Sheets CSV URL.
- * The URL comes from: File > Share > Publish to web > PDI_Database sheet > CSV
+ * Fetches PDI records from the published PDI_Database CSV.
  */
 export async function fetchPDIRecords(): Promise<VehicleRecord[]> {
   if (!SHEETS_CSV_URL) {
-    throw new Error('SHEETS_CSV_URL environment variable is not set. See README for setup instructions.')
+    throw new Error('SHEETS_CSV_URL environment variable is not set.')
   }
 
-  // Add cache-busting so we always get fresh data
   const url = `${SHEETS_CSV_URL}&cachebust=${Date.now()}`
-
-  const res = await fetch(url, {
-    next: { revalidate: 300 }, // cache for 5 minutes on Vercel
-  })
+  const res = await fetch(url, { next: { revalidate: 300 } })
 
   if (!res.ok) {
     throw new Error(`Failed to fetch sheet data: ${res.status} ${res.statusText}`)
@@ -57,27 +53,82 @@ export async function fetchPDIRecords(): Promise<VehicleRecord[]> {
 }
 
 /**
- * Compute dashboard stats from raw records, filtered to the selected month.
+ * Fetches the plan lookup from the published Plan_Data CSV.
+ * Falls back to an empty map if the URL isn't configured yet.
+ * Format: Date (DD-MM-YYYY), Plan (number)
  */
-export function computeStats(records: VehicleRecord[], month: string): ProductionStats {
+export async function fetchPlanData(): Promise<Record<string, number>> {
+  if (!SHEETS_PLAN_CSV_URL) {
+    console.warn('SHEETS_PLAN_CSV_URL not set — plan data will be empty.')
+    return {}
+  }
+
+  const url = `${SHEETS_PLAN_CSV_URL}&cachebust=${Date.now()}`
+  const res = await fetch(url, { next: { revalidate: 300 } })
+
+  if (!res.ok) {
+    console.error(`Failed to fetch plan data: ${res.status}`)
+    return {}
+  }
+
+  const csv = await res.text()
+
+  return new Promise((resolve) => {
+    Papa.parse(csv, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (result) => {
+        const lookup: Record<string, number> = {}
+        for (const row of result.data as any[]) {
+          const date = (row.Date || '').trim()
+          const qty  = parseInt(row.Plan || '0')
+          if (date && qty > 0) lookup[date] = qty
+        }
+        resolve(lookup)
+      },
+      error: () => resolve({}),
+    })
+  })
+}
+
+/**
+ * Compute dashboard stats from raw records + plan lookup, filtered to selected month.
+ */
+export function computeStats(
+  records:  VehicleRecord[],
+  month:    string,
+  planData: Record<string, number> = {},
+): ProductionStats {
   const filtered = records.filter(r => r.month === month)
 
-  // Daily PDI sign-off counts (only vehicles that have been signed off)
+  // Daily PDI sign-off counts (only signed-off vehicles)
   const dailyMap: Record<string, DailyCount> = {}
   for (const r of filtered) {
     if (!r.pdi_signed_off || !r.pdi_signoff_date) continue
     const d = r.pdi_signoff_date
-    if (!dailyMap[d]) dailyMap[d] = { date: d, count: 0, signedOff: 0 }
+    if (!dailyMap[d]) dailyMap[d] = { date: d, count: 0, signedOff: 0, plan: 0 }
     dailyMap[d].count++
     dailyMap[d].signedOff++
   }
 
-  // Sort dates (DD-MM-YYYY → sort as YYYY-MM-DD)
-  const dailyCounts = Object.values(dailyMap).sort((a, b) => {
-    return parseDateToSortable(a.date).localeCompare(parseDateToSortable(b.date))
-  })
+  // Merge plan for dates that fall inside the selected month
+  const monthSuffix = getMonthSuffix(month)  // e.g. "Aug 2026" → "-08-2026"
+  for (const [date, qty] of Object.entries(planData)) {
+    if (monthSuffix && !date.endsWith(monthSuffix)) continue
+    if (dailyMap[date]) {
+      dailyMap[date].plan = qty
+    } else {
+      // Plan exists but no actuals yet — show plan bar with zero actual
+      dailyMap[date] = { date, count: 0, signedOff: 0, plan: qty }
+    }
+  }
 
-  // Latest 10 vehicles (by ID descending = most recently added)
+  // Sort dates (DD-MM-YYYY → sort as YYYY-MM-DD)
+  const dailyCounts = Object.values(dailyMap).sort((a, b) =>
+    parseDateToSortable(a.date).localeCompare(parseDateToSortable(b.date))
+  )
+
+  // Latest 10 vehicles (by ID descending)
   const latestVehicles = [...filtered].sort((a, b) => b.id - a.id).slice(0, 10)
 
   return {
@@ -92,8 +143,19 @@ export function computeStats(records: VehicleRecord[], month: string): Productio
   }
 }
 
+/** "Aug 2026" → "-08-2026" for filtering DD-MM-YYYY strings */
+function getMonthSuffix(monthLabel: string): string {
+  const monthNums: Record<string, string> = {
+    Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+    Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12',
+  }
+  const m = monthLabel.match(/^(\w{3})\s+(\d{4})$/)
+  if (!m) return ''
+  const mm = monthNums[m[1]] || ''
+  return mm ? `-${mm}-${m[2]}` : ''
+}
+
 function parseDateToSortable(ddmmyyyy: string): string {
-  // "08-08-2026" → "2026-08-08"
   const m = ddmmyyyy.match(/^(\d{2})-(\d{2})-(\d{4})$/)
   if (m) return `${m[3]}-${m[2]}-${m[1]}`
   return ddmmyyyy
@@ -104,10 +166,7 @@ function parseDateToSortable(ddmmyyyy: string): string {
  */
 export function getMonths(records: VehicleRecord[]): string[] {
   const months = Array.from(new Set(records.map(r => r.month))).filter(Boolean)
-  // Sort by parsed date (most recent first)
-  return months.sort((a, b) => {
-    return parseMonthLabel(b) - parseMonthLabel(a)
-  })
+  return months.sort((a, b) => parseMonthLabel(b) - parseMonthLabel(a))
 }
 
 function parseMonthLabel(label: string): number {
