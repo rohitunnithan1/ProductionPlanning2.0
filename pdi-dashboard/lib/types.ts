@@ -20,6 +20,7 @@ export interface DailyCount {
   date: string   // "DD-MM-YYYY"
   count: number
   signedOff: number
+  plan: number   // planned vehicles from PPC sheet (Vehicle - Movement to Plant Outbound)
 }
 
 export interface ProductionStats {
