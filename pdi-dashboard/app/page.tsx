@@ -92,13 +92,11 @@ function downloadCSV(records: VehicleRecord[], dateLabel: string) {
 }
 
 export default function Dashboard() {
-  const [months, setMonths]               = useState<string[]>([])
-  const [selectedMonth, setSelectedMonth] = useState<string>('')
-  const [stats, setStats]                 = useState<ProductionStats | null>(null)
-  const [allRecords, setAllRecords]       = useState<VehicleRecord[]>([])
-  const [loading, setLoading]             = useState(true)
-  const [error, setError]                 = useState<string | null>(null)
-  const [lastUpdated, setLastUpdated]     = useState<string>('')
+  const [stats, setStats]             = useState<ProductionStats | null>(null)
+  const [allRecords, setAllRecords]   = useState<VehicleRecord[]>([])
+  const [loading, setLoading]         = useState(true)
+  const [error, setError]             = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<string>('')
 
   // Chart controls
   const [viewMode, setViewMode] = useState<ViewMode>('day')
@@ -108,24 +106,19 @@ export default function Dashboard() {
   // Drill-down modal
   const [clickedDate, setClickedDate] = useState<string | null>(null)  // DD-MM-YYYY
 
-  const fetchData = useCallback(async (month?: string) => {
+  const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const url = `/api/production${month ? `?month=${encodeURIComponent(month)}` : ''}`
-      const res = await fetch(url)
+      const res = await fetch('/api/production')
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.error || `HTTP ${res.status}`)
       }
       const data = await res.json()
       setStats(data.stats)
-      setMonths(data.months)
-      setSelectedMonth(data.selectedMonth)
       setAllRecords(data.records || [])
       setLastUpdated(new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }))
-      setDateFrom('')
-      setDateTo('')
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -134,11 +127,6 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
-
-  const handleMonthChange = (m: string) => {
-    setSelectedMonth(m)
-    fetchData(m)
-  }
 
   // Filter + aggregate chart data
   const chartData = useMemo(() => {
@@ -186,26 +174,13 @@ export default function Dashboard() {
             <p className="text-xs text-gray-500 mt-0.5">Plan vs Actual — PDI sign-off tracker</p>
           </div>
           <p className="text-sm text-gray-400 font-medium hidden md:block">PDI signed off by Zeno team</p>
-          <div className="flex items-center gap-3">
-            {months.length > 0 && (
-              <select
-                value={selectedMonth}
-                onChange={e => handleMonthChange(e.target.value)}
-                className="bg-gray-800 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {months.map(m => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            )}
-            <button
-              onClick={() => fetchData(selectedMonth)}
-              className="bg-gray-800 border border-gray-700 text-gray-400 text-sm rounded-lg px-3 py-2 hover:bg-gray-700 hover:text-white transition-colors"
-              title="Refresh data"
-            >
-              ↻ Refresh
-            </button>
-          </div>
+          <button
+            onClick={() => fetchData()}
+            className="bg-gray-800 border border-gray-700 text-gray-400 text-sm rounded-lg px-3 py-2 hover:bg-gray-700 hover:text-white transition-colors"
+            title="Refresh data"
+          >
+            ↻ Refresh
+          </button>
         </div>
       </header>
 

@@ -96,10 +96,11 @@ export async function fetchPlanData(): Promise<Record<string, number>> {
  */
 export function computeStats(
   records:  VehicleRecord[],
-  month:    string,
+  month:    string | undefined,
   planData: Record<string, number> = {},
 ): ProductionStats {
-  const filtered = records.filter(r => r.month === month)
+  // If no month specified, include all records
+  const filtered = month ? records.filter(r => r.month === month) : records
 
   // Daily PDI sign-off counts (only signed-off vehicles)
   const dailyMap: Record<string, DailyCount> = {}
@@ -167,7 +168,7 @@ export function computeStats(
     allOK:      filtered.filter(r => !r.has_issues).length,
     dailyCounts,
     latestVehicles,
-    month,
+    month: month || 'All',
   }
 }
 
